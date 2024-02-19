@@ -1,0 +1,24 @@
+{
+    "device" : "/dev/input/js0", 
+    "driveTrigger" : {"value" : 0, "type" : 2, "number" : 5},
+    "driveTriggerMapping" : {
+        "input_vec": [-32767, 32767],
+        "output_vec": [0, 255]
+    }, 
+    "reverseTrigger" : {"value" : 0, "type" : 2, "number" : 2}, 
+    "reverseTriggerMapping" : {
+        "input_vec": [-32767, 32767],
+        "output_vec": [0, 255]
+    }, 
+    "steeringTrigger" : {"value" : 0, "type" : 2, "number" : 0}, 
+    "steeringTriggerMapping" : {
+        "input_vec": [-32767, 32767],
+        "output_vec": [-32767, 32767]
+    }, 
+    "parkBtn" : {"value" : 1, "type" : 1, "number" : 0}, 
+    "releaseParkBtn" : {"value" : 1, "type" : 1, "number" : 1}, 
+    "steeringModeBtn1" : {"value" : -32767, "type" : 2, "number" : 6},
+    "steeringModeBtn2" : {"value" : -32767, "type" : 2, "number" : 7},
+    "steeringModeBtn3" : {"value" : 32767, "type" : 2, "number" : 6},
+    "steeringModeBtn4" : {"value" : 32767, "type" : 2, "number" : 7}
+}
