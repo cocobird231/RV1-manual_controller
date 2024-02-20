@@ -4,7 +4,7 @@
 # The variables under controller_prop are related to the ControllerInfo.msg.
 controller_prop:
     msg_type : 0 # Set to MSG_TYPE_STEERING_WHEEL or MSG_TYPE_CHASSIS. See ControllerInfo.msg for more details.
-    service_mode : 0 # Set to SERVICE_MODE_CLIENT or SERVICE_MODE_SERVER. See ControllerInfo.msg for more details.
+    controller_mode : 0 # Set to CONTROLLER_MODE_TOPIC or CONTROLLER_MODE_SERVICE. See ControllerInfo.msg for more details.
     service_name : "controller" # The _id number will added in suffix, i.e. "<service_name>_<id>".
     timeout_ms : 30.0 # Tell control server to wait for response for _ms.
     period_ms : 50.0 # Tell control server to send control signal every _ms.
@@ -15,6 +15,9 @@ input_prop:
     mode : "joystick" # Set to "joystick" or "keyboard".
     joystickConfigFile : "controller_joystick.json" # The joystick configuration file. Ignored if mode is "keyboard".
     keyboardConfigFile : "controller_keyboard.json" # The keyboard configuration file. Ignored if mode is "joystick".
+
+server_prop:
+    serviceName : "controlserver_0" # The service name of the control server.
 
 # Settings for Params class under vehicle_interfaces/params.h
 generic_prop:

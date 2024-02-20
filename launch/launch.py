@@ -29,7 +29,7 @@ def generate_launch_description():
             parameters=[
                 {
                     "msg_type" : data['controller_prop']['msg_type'], 
-                    "service_mode" : data['controller_prop']['service_mode'], 
+                    "controller_mode" : data['controller_prop']['controller_mode'], 
                     "service_name" : data['controller_prop']['service_name'] + '_' + str(data['generic_prop']['id']), 
                     "timeout_ms" : data['controller_prop']['timeout_ms'], 
                     "period_ms" : data['controller_prop']['period_ms'], 
@@ -39,6 +39,8 @@ def generate_launch_description():
                     "mode" : data['input_prop']['mode'], 
                     "joystickConfigFile" : data['input_prop']['joystickConfigFile'], 
                     "keyboardConfigFile" : data['input_prop']['keyboardConfigFile'], 
+
+                    "controlService" : data['server_prop']['serviceName'], 
 
                     # Settings for Params class under vehicle_interfaces/params.h
                     # Do not change the settings rashly

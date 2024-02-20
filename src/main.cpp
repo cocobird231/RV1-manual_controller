@@ -10,6 +10,9 @@ int main(int argc, char** argv)
     executor->add_node(controller);
     std::thread execTh(vehicle_interfaces::SpinExecutor, executor, "controller", 1000.0);
 
+    while (1)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
     executor->cancel();
     execTh.join();
     controller->close();

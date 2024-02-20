@@ -43,7 +43,7 @@ private:
 
 public:
     int msg_type = 0;
-    int service_mode = 0;
+    int controller_mode = 0;
     std::string service_name = "controller";
 
     double timeout_ms = 30.0;
@@ -55,12 +55,13 @@ public:
     std::string joystickConfigFile = "controller_joystick.json";
     std::string keyboardConfigFile = "controller_keyboard.json";
 
+    std::string controlService = "controlserver_0";
+
 private:
-    // Fixme:
     void _getParams()
     {
         this->get_parameter("msg_type", this->msg_type);
-        this->get_parameter("service_mode", this->service_mode);
+        this->get_parameter("controller_mode", this->controller_mode);
         this->get_parameter("service_name", this->service_name);
         this->get_parameter("timeout_ms", this->timeout_ms);
         this->get_parameter("period_ms", this->period_ms);
@@ -69,6 +70,7 @@ private:
         this->get_parameter("mode", this->mode);
         this->get_parameter("joystickConfigFile", this->joystickConfigFile);
         this->get_parameter("keyboardConfigFile", this->keyboardConfigFile);
+        this->get_parameter("controlService", this->controlService);
     }
 
     rcl_interfaces::msg::SetParametersResult _paramsCallback(const std::vector<rclcpp::Parameter>& params)
@@ -101,7 +103,7 @@ public:
         cbFuncSetF_(false)
     {
         this->declare_parameter<int>("msg_type", this->msg_type);
-        this->declare_parameter<int>("service_mode", this->service_mode);
+        this->declare_parameter<int>("controller_mode", this->controller_mode);
         this->declare_parameter<std::string>("service_name", this->service_name);
         this->declare_parameter<double>("timeout_ms", this->timeout_ms);
         this->declare_parameter<double>("period_ms", this->period_ms);
@@ -110,6 +112,7 @@ public:
         this->declare_parameter<std::string>("mode", this->mode);
         this->declare_parameter<std::string>("joystickConfigFile", this->joystickConfigFile);
         this->declare_parameter<std::string>("keyboardConfigFile", this->keyboardConfigFile);
+        this->declare_parameter<std::string>("controlService", this->controlService);
         this->_getParams();
 
         this->_paramsCallbackHandler = this->add_on_set_parameters_callback(std::bind(&Params::_paramsCallback, this, std::placeholders::_1));
@@ -129,20 +132,21 @@ public:
  * Only support joystick mode now.
  * Only support steering wheel control now.
  * Only support pwm mode now.
- * [ ] loadJoystickConfig function.
- * [ ] Joystick signal detect loop function.
- * [ ] Joystick analog value mapping.
- * [ ] clear joystick fp.
+ * [x] loadJoystickConfig function.
+ * [x] Joystick signal detect loop function.
+ * [x] Joystick analog value mapping.
+ * [x] clear joystick fp.
  * [ ] loadKeyboardConfig function.
  * [ ] Keyboard signal detect loop function.
  * [ ] Keyboard signal convert.
  * [ ] clear keyboard fp.
+ * [x] register to control server.
  */
 class Controller : public vehicle_interfaces::VehicleServiceNode
 {
 private:
     std::shared_ptr<Params> params_;// Controller parameters.
-    std::shared_ptr<vehicle_interfaces::Controller> controller_;// Communicate with ControlServerController.
+    std::shared_ptr<vehicle_interfaces::SteeringWheelControllerServer> controller_;// Communicate with ControlServerController.
     rclcpp::executors::SingleThreadedExecutor* executor_;// Executor for Controller.
     std::thread* execTh_;// Executor thread.
     vehicle_interfaces::msg::ControlSteeringWheel controlSteeringWheelMsg_;// ControlSteeringWheel message.
@@ -153,8 +157,9 @@ private:
     std::atomic<bool> joystickF_;// Joystick file open flag.
     JoystickController jInfo_;// Joystick information.
     std::thread* joystickTh_;// Joystick thread.
-    
+
     // Node control.
+    rclcpp::Node::SharedPtr reqClientNode_;// Node for request client.
     std::atomic<bool> exitF_;
 
 private:
@@ -174,7 +179,7 @@ private:
 
     /**
      * (Sub-thread) Loop function for joystick signal input.
-     * Function stops when exitF_ set to true.
+     * @note Function stops when exitF_ set to true.
      */
     void _joystickTh()
     {
@@ -263,7 +268,7 @@ private:
                 }
                 else
                     continue;
-                this->controller_->setControlSteeringWheelData(this->controlSteeringWheelMsg_);
+                this->controller_->setControlSignal(this->controlSteeringWheelMsg_);
             }
             else if (feof(this->joystick_))
             {
@@ -306,16 +311,36 @@ public:
         }
         vehicle_interfaces::msg::ControllerInfo cinfo;
         cinfo.msg_type = params->msg_type;
-        cinfo.service_mode = params->service_mode;
+        cinfo.controller_mode = params->controller_mode;
         cinfo.service_name = params->service_name;
         cinfo.timeout_ms = params->timeout_ms;
         cinfo.period_ms = params->period_ms;
         cinfo.privilege = params->privilege;
         cinfo.pub_type = params->pub_type;
-        this->controller_ = std::make_shared<vehicle_interfaces::Controller>(params, cinfo);
+        this->controller_ = std::make_shared<vehicle_interfaces::SteeringWheelControllerServer>(cinfo, params->controlService);
         this->executor_ = new rclcpp::executors::SingleThreadedExecutor();
         this->executor_->add_node(this->controller_);
         this->execTh_ = new std::thread(vehicle_interfaces::SpinExecutor, this->executor_, "controller", 1000.0);
+
+        // Register to control server.
+        this->reqClientNode_ = rclcpp::Node::make_shared(params->nodeName + "_controllerinfo_req_client");
+        auto regClient = this->reqClientNode_->create_client<vehicle_interfaces::srv::ControllerInfoReg>(params->controlService + "_Reg");
+        auto request = std::make_shared<vehicle_interfaces::srv::ControllerInfoReg::Request>();
+        request->request = cinfo;
+        auto result = regClient->async_send_request(request);
+#if ROS_DISTRO == 0
+        if (rclcpp::spin_until_future_complete(this->reqClientNode_, result, 100ms) == rclcpp::executor::FutureReturnCode::SUCCESS)
+#else
+        if (rclcpp::spin_until_future_complete(this->reqClientNode_, result, 100ms) == rclcpp::FutureReturnCode::SUCCESS)
+#endif
+        {
+            RCLCPP_INFO(this->get_logger(), "[Controller] Register to control server success.");
+        }
+        else
+        {
+            RCLCPP_ERROR(this->get_logger(), "[Controller] Register to control server failed.");
+        }
+        RCLCPP_INFO(this->get_logger(), "[Controller] Constructed.");
     }
 
     ~Controller()
