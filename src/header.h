@@ -127,21 +127,6 @@ public:
 
 
 
-/**
- * TODO:
- * Only support joystick mode now.
- * Only support steering wheel control now.
- * Only support pwm mode now.
- * [x] loadJoystickConfig function.
- * [x] Joystick signal detect loop function.
- * [x] Joystick analog value mapping.
- * [x] clear joystick fp.
- * [ ] loadKeyboardConfig function.
- * [ ] Keyboard signal detect loop function.
- * [ ] Keyboard signal convert.
- * [ ] clear keyboard fp.
- * [x] register to control server.
- */
 class Controller : public vehicle_interfaces::VehicleServiceNode
 {
 private:
@@ -157,6 +142,12 @@ private:
     std::atomic<bool> joystickF_;// Joystick file open flag.
     JoystickController jInfo_;// Joystick information.
     std::thread* joystickTh_;// Joystick thread.
+
+    // Keyboard control.
+    FILE* keyboard_;// Keyboard file pointer.
+    std::atomic<bool> keyboardF_;// Keyboard file open flag.
+    KeyboardController kInfo_;// Keyboard information.
+    std::thread* keyboardTh_;// Keyboard thread.
 
     // Node control.
     rclcpp::Node::SharedPtr reqClientNode_;// Node for request client.
@@ -194,7 +185,7 @@ private:
                 if (!this->joystick_)
                 {
                     this->joystickF_ = false;
-                    RCLCPP_ERROR(this->get_logger(), "[ControlServer::_joystickCbFunc] Open %s failed.\n", this->jInfo_.device.c_str());
+                    RCLCPP_ERROR(this->get_logger(), "[Controller::_joystickTh] Open %s failed.\n", this->jInfo_.device.c_str());
                     std::this_thread::sleep_for(1s);
                     continue;
                 }
@@ -206,7 +197,7 @@ private:
             const size_t ret = fread(&msg, sizeof(js_event), 1, this->joystick_);
             if (ret == 1)
             {
-                printf("time: %-5d, value: %-5d, type: %-5d, number: %-5d\n", msg.time, msg.value, msg.type, msg.number);
+                // printf("time: %-5d, value: %-5d, type: %-5d, number: %-5d\n", msg.time, msg.value, msg.type, msg.number);
                 if (msg.type == 2 && js_event_trig_equal(msg, this->jInfo_.driveTrigger))
                 {
                     std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
@@ -273,12 +264,128 @@ private:
             else if (feof(this->joystick_))
             {
                 this->joystickF_ = false;
-                RCLCPP_ERROR(this->get_logger(), "[ControlServer::_joystickCbFunc] EoF.");
+                RCLCPP_ERROR(this->get_logger(), "[Controller::_joystickTh] EoF.");
             }
             else if (ferror(this->joystick_))
             {
                 this->joystickF_ = false;
-                RCLCPP_ERROR(this->get_logger(), "[ControlServer::_joystickCbFunc] Error reading %s.", this->jInfo_.device.c_str());
+                RCLCPP_ERROR(this->get_logger(), "[Controller::_joystickTh] Error reading %s.", this->jInfo_.device.c_str());
+            }
+        }
+    }
+
+    /**
+     * (Sub-thread) Loop function for keyboard signal input.
+     * @note The $USER must have permission to access the keyboard device, e.g. member of the 'input' group.
+     * @note Function stops when exitF_ set to true.
+     */
+    void _keyboardTh()
+    {
+        while (!this->exitF_)
+        {
+            // Open keyboard.
+            if (!this->keyboardF_)
+            {
+                if (this->keyboard_ != nullptr)
+                    fclose(this->keyboard_);
+                this->keyboard_ = fopen(this->kInfo_.device.c_str(), "rb+");
+                if (!this->keyboard_)
+                {
+                    this->keyboardF_ = false;
+                    RCLCPP_ERROR(this->get_logger(), "[Controller::_keyboardTh] Open %s failed.\n", this->kInfo_.device.c_str());
+                    std::this_thread::sleep_for(1s);
+                    continue;
+                }
+                this->keyboardF_ = true;
+            }
+
+            // Read keyboard data.
+            input_event msg;
+            const size_t ret = fread(&msg, sizeof(input_event), 1, this->keyboard_);
+            if (ret == 1)
+            {
+                // printf("type: %-5ld, code: %-5ld, value: %-5ld\n", msg.type, msg.code, msg.value);
+                if (msg.value != 2 && input_event_btn_equal_wo_value(msg, this->kInfo_.driveBtn))
+                {
+                    std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
+                    this->controlSteeringWheelMsg_.gear = vehicle_interfaces::msg::ControlSteeringWheel::GEAR_DRIVE;
+                    this->controlSteeringWheelMsg_.pedal_throttle = vehicle_interfaces::LinearMapping1d(msg.value, 
+                                                                    this->kInfo_.driveBtnMap.input_vec[0], 
+                                                                    this->kInfo_.driveBtnMap.input_vec[1], 
+                                                                    this->kInfo_.driveBtnMap.output_vec[0], 
+                                                                    this->kInfo_.driveBtnMap.output_vec[1]);
+                }
+                else if (msg.value != 2 && input_event_btn_equal_wo_value(msg, this->kInfo_.reverseBtn))
+                {
+                    std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
+                    this->controlSteeringWheelMsg_.gear = vehicle_interfaces::msg::ControlSteeringWheel::GEAR_REVERSE;
+                    this->controlSteeringWheelMsg_.pedal_throttle = vehicle_interfaces::LinearMapping1d(msg.value, 
+                                                                    this->kInfo_.reverseBtnMap.input_vec[0], 
+                                                                    this->kInfo_.reverseBtnMap.input_vec[1], 
+                                                                    this->kInfo_.reverseBtnMap.output_vec[0], 
+                                                                    this->kInfo_.reverseBtnMap.output_vec[1]);
+                }
+                else if (msg.value != 2 && input_event_btn_equal_wo_value(msg, this->kInfo_.leftBtn))
+                {
+                    std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
+                    this->controlSteeringWheelMsg_.steering = vehicle_interfaces::LinearMapping1d(msg.value, 
+                                                                this->kInfo_.leftBtnMap.input_vec[0], 
+                                                                this->kInfo_.leftBtnMap.input_vec[1], 
+                                                                this->kInfo_.leftBtnMap.output_vec[0], 
+                                                                this->kInfo_.leftBtnMap.output_vec[1]);
+                }
+                else if (msg.value != 2 && input_event_btn_equal_wo_value(msg, this->kInfo_.rightBtn))
+                {
+                    std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
+                    this->controlSteeringWheelMsg_.steering = vehicle_interfaces::LinearMapping1d(msg.value, 
+                                                                this->kInfo_.rightBtnMap.input_vec[0], 
+                                                                this->kInfo_.rightBtnMap.input_vec[1], 
+                                                                this->kInfo_.rightBtnMap.output_vec[0], 
+                                                                this->kInfo_.rightBtnMap.output_vec[1]);
+                }
+                else if (input_event_btn_equal(msg, this->kInfo_.parkBtn))
+                {
+                    std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
+                    this->controlSteeringWheelMsg_.gear = vehicle_interfaces::msg::ControlSteeringWheel::GEAR_PARK;
+                }
+                else if (input_event_btn_equal(msg, this->kInfo_.releaseParkBtn))
+                {
+                    std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
+                    this->controlSteeringWheelMsg_.gear = vehicle_interfaces::msg::ControlSteeringWheel::GEAR_NEUTRAL;
+                }
+                else if (input_event_btn_equal(msg, this->kInfo_.steeringModeBtn1))
+                {
+                    std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
+                    this->controlSteeringWheelMsg_.func_0 = 1;
+                }
+                else if (input_event_btn_equal(msg, this->kInfo_.steeringModeBtn2))
+                {
+                    std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
+                    this->controlSteeringWheelMsg_.func_0 = 2;
+                }
+                else if (input_event_btn_equal(msg, this->kInfo_.steeringModeBtn3))
+                {
+                    std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
+                    this->controlSteeringWheelMsg_.func_0 = 3;
+                }
+                else if (input_event_btn_equal(msg, this->kInfo_.steeringModeBtn4))
+                {
+                    std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
+                    this->controlSteeringWheelMsg_.func_0 = 4;
+                }
+                else
+                    continue;
+                this->controller_->setControlSignal(this->controlSteeringWheelMsg_);
+            }
+            else if (feof(this->keyboard_))
+            {
+                this->keyboardF_ = false;
+                RCLCPP_ERROR(this->get_logger(), "[Controller::_keyboardTh] EoF.");
+            }
+            else if (ferror(this->keyboard_))
+            {
+                this->keyboardF_ = false;
+                RCLCPP_ERROR(this->get_logger(), "[Controller::_keyboardTh] Error reading %s.", this->kInfo_.device.c_str());
             }
         }
     }
@@ -292,6 +399,10 @@ public:
         execTh_(nullptr), 
         joystick_(nullptr), 
         joystickF_(false), 
+        joystickTh_(nullptr), 
+        keyboard_(nullptr), 
+        keyboardF_(false), 
+        keyboardTh_(nullptr), 
         exitF_(false)
     {
         // Initialize steering wheel control message.
@@ -320,6 +431,27 @@ public:
                 return;
             }
         }
+        else if (params->mode == "keyboard")
+        {
+            // Check KeyboardInfo.
+            RCLCPP_INFO(this->get_logger(), "[Controller] Loading keyboard file: %s", params->keyboardConfigFile.c_str());
+            if (ReadKeyboardControllerFile(params->keyboardConfigFile, this->kInfo_))
+            {
+                this->keyboardTh_ = new std::thread(&Controller::_keyboardTh, this);
+                RCLCPP_INFO(this->get_logger(), "[Controller] Keyboard initialized.");
+            }
+            else
+            {
+                RCLCPP_ERROR(this->get_logger(), "[Controller] Failed to read keyboard file: %s", params->keyboardConfigFile.c_str());
+                return;
+            }
+        }
+        else
+        {
+            RCLCPP_ERROR(this->get_logger(), "[Controller] Unsupported mode: %s", params->mode.c_str());
+            return;
+        }
+
         vehicle_interfaces::msg::ControllerInfo cinfo;
         cinfo.msg_type = params->msg_type;
         cinfo.controller_mode = params->controller_mode;
@@ -369,7 +501,7 @@ public:
         if (this->exitF_)// Ignore process if called repeatedly.
             return;
         this->exitF_ = true;// All looping process will be braked if exitF_ set to true.
-        // Destroy joystick timer.
+        // Join joystick thread.
         if (this->joystickTh_ != nullptr)
         {
             this->joystickTh_->join();
@@ -379,6 +511,17 @@ public:
         if (this->joystick_ != nullptr)
         {
             fclose(this->joystick_);
+        }
+        // Join keyboard thread.
+        if (this->keyboardTh_ != nullptr)
+        {
+            this->keyboardTh_->join();
+            delete this->keyboardTh_;
+        }
+        // Delete keyboard.
+        if (this->keyboard_ != nullptr)
+        {
+            fclose(this->keyboard_);
         }
         // Destroy executor.
         if (this->execTh_ != nullptr)

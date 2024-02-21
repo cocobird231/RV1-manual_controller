@@ -1,0 +1,93 @@
+{
+    "device": "/dev/input/event0",
+    "driveBtn": {
+        "type": 1,
+        "code": 103,
+        "value": 1
+    },
+    "driveBtnMapping": {
+        "input_vec": [
+            0,
+            1
+        ],
+        "output_vec": [
+            0,
+            255
+        ]
+    },
+    "reverseBtn": {
+        "type": 1,
+        "code": 108,
+        "value": 1
+    },
+    "reverseBtnMapping": {
+        "input_vec": [
+            0,
+            1
+        ],
+        "output_vec": [
+            0,
+            255
+        ]
+    },
+    "leftBtn": {
+        "type": 1,
+        "code": 105,
+        "value": 1
+    },
+    "leftBtnMapping": {
+        "input_vec": [
+            0,
+            1
+        ],
+        "output_vec": [
+            0,
+            -32767
+        ]
+    },
+    "rightBtn": {
+        "type": 1,
+        "code": 106,
+        "value": 1
+    },
+    "rightBtnMapping": {
+        "input_vec": [
+            0,
+            1
+        ],
+        "output_vec": [
+            0,
+            32767
+        ]
+    },
+    "parkBtn": {
+        "type": 1,
+        "code": 57,
+        "value": 1
+    },
+    "releaseParkBtn": {
+        "type": 1,
+        "code": 1,
+        "value": 1
+    },
+    "steeringModeBtn1": {
+        "type": 1,
+        "code": 2,
+        "value": 1
+    },
+    "steeringModeBtn2": {
+        "type": 1,
+        "code": 3,
+        "value": 1
+    },
+    "steeringModeBtn3": {
+        "type": 1,
+        "code": 4,
+        "value": 1
+    },
+    "steeringModeBtn4": {
+        "type": 1,
+        "code": 5,
+        "value": 1
+    }
+}
