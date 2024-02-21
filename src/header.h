@@ -246,22 +246,22 @@ private:
                     std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
                     this->controlSteeringWheelMsg_.gear = vehicle_interfaces::msg::ControlSteeringWheel::GEAR_NEUTRAL;
                 }
-                else if (msg.type == 1 && js_event_btn_equal(msg, this->jInfo_.steeringModeBtn1))
+                else if (msg.type == 2 && js_event_btn_equal(msg, this->jInfo_.steeringModeBtn1))
                 {
                     std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
                     this->controlSteeringWheelMsg_.func_0 = 1;
                 }
-                else if (msg.type == 1 && js_event_btn_equal(msg, this->jInfo_.steeringModeBtn2))
+                else if (msg.type == 2 && js_event_btn_equal(msg, this->jInfo_.steeringModeBtn2))
                 {
                     std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
                     this->controlSteeringWheelMsg_.func_0 = 2;
                 }
-                else if (msg.type == 1 && js_event_btn_equal(msg, this->jInfo_.steeringModeBtn3))
+                else if (msg.type == 2 && js_event_btn_equal(msg, this->jInfo_.steeringModeBtn3))
                 {
                     std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
                     this->controlSteeringWheelMsg_.func_0 = 3;
                 }
-                else if (msg.type == 1 && js_event_btn_equal(msg, this->jInfo_.steeringModeBtn4))
+                else if (msg.type == 2 && js_event_btn_equal(msg, this->jInfo_.steeringModeBtn4))
                 {
                     std::lock_guard<std::mutex> _lock(this->controlSteeringWheelMsgLock_);
                     this->controlSteeringWheelMsg_.func_0 = 4;
@@ -294,6 +294,17 @@ public:
         joystickF_(false), 
         exitF_(false)
     {
+        // Initialize steering wheel control message.
+        this->controlSteeringWheelMsg_.gear = vehicle_interfaces::msg::ControlSteeringWheel::GEAR_PARK;
+        this->controlSteeringWheelMsg_.steering = 0.0;
+        this->controlSteeringWheelMsg_.pedal_throttle = 0.0;
+        this->controlSteeringWheelMsg_.pedal_brake = 0.0;
+        this->controlSteeringWheelMsg_.pedal_clutch = 0.0;
+        this->controlSteeringWheelMsg_.func_0 = 1;// Default Ackermann steering mode.
+        this->controlSteeringWheelMsg_.func_1 = 0;
+        this->controlSteeringWheelMsg_.func_2 = 0;
+        this->controlSteeringWheelMsg_.func_3 = 0;
+
         if (params->mode == "joystick")
         {
             // Check JoystickInfo.
@@ -317,10 +328,15 @@ public:
         cinfo.period_ms = params->period_ms;
         cinfo.privilege = params->privilege;
         cinfo.pub_type = params->pub_type;
-        this->controller_ = std::make_shared<vehicle_interfaces::SteeringWheelControllerServer>(cinfo, params->controlService);
-        this->executor_ = new rclcpp::executors::SingleThreadedExecutor();
-        this->executor_->add_node(this->controller_);
-        this->execTh_ = new std::thread(vehicle_interfaces::SpinExecutor, this->executor_, "controller", 1000.0);
+        
+        if (cinfo.msg_type == vehicle_interfaces::msg::ControllerInfo::MSG_TYPE_STEERING_WHEEL)
+        {
+            this->controller_ = std::make_shared<vehicle_interfaces::SteeringWheelControllerServer>(cinfo, params->controlService);
+            this->controller_->setControlSignal(this->controlSteeringWheelMsg_);// Default control signal.
+            this->executor_ = new rclcpp::executors::SingleThreadedExecutor();
+            this->executor_->add_node(this->controller_);
+            this->execTh_ = new std::thread(vehicle_interfaces::SpinExecutor, this->executor_, "controller", 1000.0);
+        }
 
         // Register to control server.
         this->reqClientNode_ = rclcpp::Node::make_shared(params->nodeName + "_controllerinfo_req_client");
