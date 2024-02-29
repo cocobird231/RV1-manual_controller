@@ -473,13 +473,16 @@ public:
         // Register to control server.
         this->reqClientNode_ = rclcpp::Node::make_shared(params->nodeName + "_controllerinfo_req_client");
         auto regClient = this->reqClientNode_->create_client<vehicle_interfaces::srv::ControllerInfoReg>(params->controlService + "_Reg");
+        bool stopF = false;
+        vehicle_interfaces::ConnToService(regClient, stopF, std::chrono::milliseconds(5000), -1);
         auto request = std::make_shared<vehicle_interfaces::srv::ControllerInfoReg::Request>();
         request->request = cinfo;
+CONTROLLER_REG_TAG:
         auto result = regClient->async_send_request(request);
 #if ROS_DISTRO == 0
-        if (rclcpp::spin_until_future_complete(this->reqClientNode_, result, 100ms) == rclcpp::executor::FutureReturnCode::SUCCESS)
+        if (rclcpp::spin_until_future_complete(this->reqClientNode_, result, 500ms) == rclcpp::executor::FutureReturnCode::SUCCESS)
 #else
-        if (rclcpp::spin_until_future_complete(this->reqClientNode_, result, 100ms) == rclcpp::FutureReturnCode::SUCCESS)
+        if (rclcpp::spin_until_future_complete(this->reqClientNode_, result, 500ms) == rclcpp::FutureReturnCode::SUCCESS)
 #endif
         {
             RCLCPP_INFO(this->get_logger(), "[Controller] Register to control server success.");
@@ -487,6 +490,7 @@ public:
         else
         {
             RCLCPP_ERROR(this->get_logger(), "[Controller] Register to control server failed.");
+            goto CONTROLLER_REG_TAG;
         }
         RCLCPP_INFO(this->get_logger(), "[Controller] Constructed.");
     }

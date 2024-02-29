@@ -6,8 +6,8 @@ controller_prop:
     msg_type : 0 # Set to MSG_TYPE_STEERING_WHEEL or MSG_TYPE_CHASSIS. See ControllerInfo.msg for more details.
     controller_mode : 0 # Set to CONTROLLER_MODE_TOPIC or CONTROLLER_MODE_SERVICE. See ControllerInfo.msg for more details.
     service_name : "controller" # The _id number will added in suffix, i.e. "<service_name>_<id>".
-    timeout_ms : 30.0 # Tell control server to wait for response for _ms.
-    period_ms : 50.0 # Tell control server to send control signal every _ms.
+    timeout_ms : 50.0 # Tell control server to wait for response for _ms.
+    period_ms : 80.0 # Tell control server to send control signal every _ms.
     privilege : 100 # Privileges. Range from 0 to 100.
     pub_type : 0 # Set to PUB_TYPE_XXX. See ControllerInfo.msg for more details.
 
