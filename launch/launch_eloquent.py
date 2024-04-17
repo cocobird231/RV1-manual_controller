@@ -40,7 +40,8 @@ def generate_launch_description():
                     "joystickConfigFile" : data['input_prop']['joystickConfigFile'], 
                     "keyboardConfigFile" : data['input_prop']['keyboardConfigFile'], 
 
-                    "controlService" : data['server_prop']['serviceName'], 
+                    "controlService" : data['controlserver_prop']['controlService'], 
+                    "controllerRegService" : data['controlserver_prop']['controllerRegService'], 
 
                     # Settings for Params class under vehicle_interfaces/params.h
                     # Do not change the settings rashly

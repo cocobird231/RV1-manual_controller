@@ -18,6 +18,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "vehicle_interfaces/control.h"
+#include "vehicle_interfaces/timer.h"
 #include "vehicle_interfaces/utils.h"
 
 #include "vehicle_interfaces/msg/control_chassis.hpp"
@@ -56,6 +57,7 @@ public:
     std::string keyboardConfigFile = "controller_keyboard.json";
 
     std::string controlService = "controlserver_0";
+    std::string controllerRegService = "controlserver_0_ControllerInfoReg";
 
 private:
     void _getParams()
@@ -71,6 +73,7 @@ private:
         this->get_parameter("joystickConfigFile", this->joystickConfigFile);
         this->get_parameter("keyboardConfigFile", this->keyboardConfigFile);
         this->get_parameter("controlService", this->controlService);
+        this->get_parameter("controllerRegService", this->controllerRegService);
     }
 
     rcl_interfaces::msg::SetParametersResult _paramsCallback(const std::vector<rclcpp::Parameter>& params)
@@ -113,6 +116,7 @@ public:
         this->declare_parameter<std::string>("joystickConfigFile", this->joystickConfigFile);
         this->declare_parameter<std::string>("keyboardConfigFile", this->keyboardConfigFile);
         this->declare_parameter<std::string>("controlService", this->controlService);
+        this->declare_parameter<std::string>("controllerRegService", this->controllerRegService);
         this->_getParams();
 
         this->_paramsCallbackHandler = this->add_on_set_parameters_callback(std::bind(&Params::_paramsCallback, this, std::placeholders::_1));
@@ -132,8 +136,8 @@ class Controller : public vehicle_interfaces::VehicleServiceNode
 private:
     std::shared_ptr<Params> params_;// Controller parameters.
     std::shared_ptr<vehicle_interfaces::SteeringWheelControllerServer> controller_;// Communicate with ControlServerController.
-    rclcpp::executors::SingleThreadedExecutor* executor_;// Executor for Controller.
-    std::thread* execTh_;// Executor thread.
+    std::shared_ptr<rclcpp::executors::SingleThreadedExecutor> executor_;// Executor for Controller.
+    vehicle_interfaces::unique_thread execTh_;// Executor thread.
     vehicle_interfaces::msg::ControlSteeringWheel controlSteeringWheelMsg_;// ControlSteeringWheel message.
     std::mutex controlSteeringWheelMsgLock_;// Lock controlSteeringWheelMsg_.
 
@@ -141,13 +145,13 @@ private:
     FILE* joystick_;// Joystick file pointer.
     std::atomic<bool> joystickF_;// Joystick file open flag.
     JoystickController jInfo_;// Joystick information.
-    std::thread* joystickTh_;// Joystick thread.
+    vehicle_interfaces::unique_thread joystickTh_;// Joystick thread.
 
     // Keyboard control.
     FILE* keyboard_;// Keyboard file pointer.
     std::atomic<bool> keyboardF_;// Keyboard file open flag.
     KeyboardController kInfo_;// Keyboard information.
-    std::thread* keyboardTh_;// Keyboard thread.
+    vehicle_interfaces::unique_thread keyboardTh_;// Keyboard thread.
 
     // Node control.
     rclcpp::Node::SharedPtr reqClientNode_;// Node for request client.
@@ -395,14 +399,10 @@ public:
         vehicle_interfaces::VehicleServiceNode(params), 
         rclcpp::Node(params->nodeName), 
         params_(params), 
-        executor_(nullptr), 
-        execTh_(nullptr), 
         joystick_(nullptr), 
         joystickF_(false), 
-        joystickTh_(nullptr), 
         keyboard_(nullptr), 
         keyboardF_(false), 
-        keyboardTh_(nullptr), 
         exitF_(false)
     {
         // Initialize steering wheel control message.
@@ -422,7 +422,7 @@ public:
             RCLCPP_INFO(this->get_logger(), "[Controller] Loading joystick file: %s", params->joystickConfigFile.c_str());
             if (ReadJoystickControllerFile(params->joystickConfigFile, this->jInfo_))
             {
-                this->joystickTh_ = new std::thread(&Controller::_joystickTh, this);
+                this->joystickTh_ = vehicle_interfaces::make_unique_thread(&Controller::_joystickTh, this);
                 RCLCPP_INFO(this->get_logger(), "[Controller] Joystick initialized.");
             }
             else
@@ -437,7 +437,7 @@ public:
             RCLCPP_INFO(this->get_logger(), "[Controller] Loading keyboard file: %s", params->keyboardConfigFile.c_str());
             if (ReadKeyboardControllerFile(params->keyboardConfigFile, this->kInfo_))
             {
-                this->keyboardTh_ = new std::thread(&Controller::_keyboardTh, this);
+                this->keyboardTh_ = vehicle_interfaces::make_unique_thread(&Controller::_keyboardTh, this);
                 RCLCPP_INFO(this->get_logger(), "[Controller] Keyboard initialized.");
             }
             else
@@ -455,6 +455,7 @@ public:
         vehicle_interfaces::msg::ControllerInfo cinfo;
         cinfo.msg_type = params->msg_type;
         cinfo.controller_mode = params->controller_mode;
+        cinfo.node_name = params->service_name + "_controllerserver";
         cinfo.service_name = params->service_name;
         cinfo.timeout_ms = params->timeout_ms;
         cinfo.period_ms = params->period_ms;
@@ -463,16 +464,16 @@ public:
         
         if (cinfo.msg_type == vehicle_interfaces::msg::ControllerInfo::MSG_TYPE_STEERING_WHEEL)
         {
-            this->controller_ = std::make_shared<vehicle_interfaces::SteeringWheelControllerServer>(cinfo, params->controlService);
+            this->controller_ = std::make_shared<vehicle_interfaces::SteeringWheelControllerServer>(cinfo);
             this->controller_->setControlSignal(this->controlSteeringWheelMsg_);// Default control signal.
-            this->executor_ = new rclcpp::executors::SingleThreadedExecutor();
+            this->executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
             this->executor_->add_node(this->controller_);
-            this->execTh_ = new std::thread(vehicle_interfaces::SpinExecutor, this->executor_, "controller", 1000.0);
+            this->execTh_ = vehicle_interfaces::make_unique_thread(vehicle_interfaces::SpinExecutor, this->executor_, cinfo.node_name, 1000.0);
         }
 
         // Register to control server.
-        this->reqClientNode_ = rclcpp::Node::make_shared(params->nodeName + "_controllerinfo_req_client");
-        auto regClient = this->reqClientNode_->create_client<vehicle_interfaces::srv::ControllerInfoReg>(params->controlService + "_Reg");
+        this->reqClientNode_ = rclcpp::Node::make_shared(params->nodeName + "_client");
+        auto regClient = this->reqClientNode_->create_client<vehicle_interfaces::srv::ControllerInfoReg>(params->controllerRegService);
         bool stopF = false;
         vehicle_interfaces::ConnToService(regClient, stopF, std::chrono::milliseconds(5000), -1);
         auto request = std::make_shared<vehicle_interfaces::srv::ControllerInfoReg::Request>();
@@ -506,34 +507,21 @@ CONTROLLER_REG_TAG:
             return;
         this->exitF_ = true;// All looping process will be braked if exitF_ set to true.
         // Join joystick thread.
-        if (this->joystickTh_ != nullptr)
-        {
-            this->joystickTh_->join();
-            delete this->joystickTh_;
-        }
+        this->joystickTh_.reset(nullptr);
         // Delete joystick.
         if (this->joystick_ != nullptr)
         {
             fclose(this->joystick_);
         }
         // Join keyboard thread.
-        if (this->keyboardTh_ != nullptr)
-        {
-            this->keyboardTh_->join();
-            delete this->keyboardTh_;
-        }
+        this->keyboardTh_.reset(nullptr);
         // Delete keyboard.
         if (this->keyboard_ != nullptr)
         {
             fclose(this->keyboard_);
         }
         // Destroy executor.
-        if (this->execTh_ != nullptr)
-        {
+        if (this->executor_)
             this->executor_->cancel();
-            this->execTh_->join();
-            delete this->execTh_;
-            delete this->executor_;
-        }
     }
 };
